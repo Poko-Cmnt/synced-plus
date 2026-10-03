@@ -29,7 +29,7 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+          targets: aarch64-linux-android
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v4
@@ -64,55 +64,65 @@ jobs:
           text = path.read_text()
 
           marker = '        getByName("release") {'
+
           if marker not in text:
               raise SystemExit(
-                  'Could not find the Tauri Android release build type in '
-                  'app/build.gradle.kts'
+                  'Could not find the Tauri Android release build type '
+                  'in app/build.gradle.kts'
               )
 
-          old = marker + '\n'
-          new = (
-              marker + '\n'
-              '            signingConfig = signingConfigs.getByName("debug")\n'
-          )
+          signing = '            signingConfig = signingConfigs.getByName("debug")'
 
-          if "signingConfig = signingConfigs.getByName(\"debug\")" in text:
-              print("Release signing is already configured.")
-          else:
-              text = text.replace(old, new, 1)
+          if signing not in text:
+              text = text.replace(
+                  marker + '\n',
+                  marker + '\n' + signing + '\n',
+                  1
+              )
               path.write_text(text)
-              print("Configured release build to use Android debug signing key.")
+
+          print("Release build will use the default Android debug signing key.")
           PY
 
-          echo "----- release build type -----"
-          sed -n '/getByName("release") {/,/^[[:space:]]*}/p' build.gradle.kts
+      - name: Build ARM64 release APK
+        run: npm run tauri android build -- --apk --target aarch64
 
-      - name: Build release APK
-        run: npm run tauri android build -- --apk
-
-      - name: Verify APK
+      - name: Find ARM64 APK
+        id: apk
         run: |
-          APK="src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk"
+          echo "Generated APK files:"
+          find src-tauri/gen/android/app/build/outputs \
+            -type f \
+            -name '*.apk' \
+            -print
 
-          if [ ! -f "$APK" ]; then
-            echo "Expected APK was not produced:"
-            echo "$APK"
-            echo
-            echo "Actual APK files:"
-            find src-tauri/gen/android/app/build/outputs -type f -name '*.apk' -print || true
+          APK="$(find src-tauri/gen/android/app/build/outputs \
+            -type f \
+            -name '*.apk' \
+            -path '*release*' \
+            | head -n 1)"
+
+          if [ -z "$APK" ]; then
+            echo "ERROR: No release APK was produced."
             exit 1
           fi
 
-          echo "APK:"
-          ls -lh "$APK"
+          echo "APK=$APK" >> "$GITHUB_OUTPUT"
+          echo "Using APK: $APK"
 
-          echo
-          echo "APK signature:"
-          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$APK"
+      - name: Verify APK
+        run: |
+          APK="${{ steps.apk.outputs.APK }}"
 
-      - name: Upload APK artifact
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" \
+            verify \
+            --verbose \
+            --print-certs \
+            "$APK"
+
+      - name: Upload ARM64 APK
         uses: actions/upload-artifact@v4
         with:
-          name: synced-plus-android-apk
-          path: src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk
+          name: synced-plus-android-arm64
+          path: ${{ steps.apk.outputs.APK }}
           if-no-files-found: error
