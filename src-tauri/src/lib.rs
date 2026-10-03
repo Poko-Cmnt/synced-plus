@@ -9,8 +9,9 @@ async fn save_lrc_android(
     use tauri_plugin_android_fs::AndroidFsExt;
 
     let api = app.android_fs_async();
+
     let uri = api
-      .file_picker()
+      .picker()
       .save_file(None, &file_name, Some("text/plain"), false)
       .await
       .map_err(|e| e.to_string())?;
