@@ -1,0 +1,118 @@
+name: Build Android APK
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
+
+      - name: Install Android SDK packages
+        run: |
+          sdkmanager \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "ndk;27.0.12077973"
+
+      - name: Set Android environment
+        run: |
+          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
+          echo "NDK_HOME=$ANDROID_SDK_ROOT/ndk/27.0.12077973" >> "$GITHUB_ENV"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Initialize Tauri Android project
+        run: npm run tauri android init -- --ci
+
+      - name: Configure release signing
+        working-directory: src-tauri/gen/android/app
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("build.gradle.kts")
+          text = path.read_text()
+
+          marker = '        getByName("release") {'
+          if marker not in text:
+              raise SystemExit(
+                  'Could not find the Tauri Android release build type in '
+                  'app/build.gradle.kts'
+              )
+
+          old = marker + '\n'
+          new = (
+              marker + '\n'
+              '            signingConfig = signingConfigs.getByName("debug")\n'
+          )
+
+          if "signingConfig = signingConfigs.getByName(\"debug\")" in text:
+              print("Release signing is already configured.")
+          else:
+              text = text.replace(old, new, 1)
+              path.write_text(text)
+              print("Configured release build to use Android debug signing key.")
+          PY
+
+          echo "----- release build type -----"
+          sed -n '/getByName("release") {/,/^[[:space:]]*}/p' build.gradle.kts
+
+      - name: Build release APK
+        run: npm run tauri android build -- --apk
+
+      - name: Verify APK
+        run: |
+          APK="src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk"
+
+          if [ ! -f "$APK" ]; then
+            echo "Expected APK was not produced:"
+            echo "$APK"
+            echo
+            echo "Actual APK files:"
+            find src-tauri/gen/android/app/build/outputs -type f -name '*.apk' -print || true
+            exit 1
+          fi
+
+          echo "APK:"
+          ls -lh "$APK"
+
+          echo
+          echo "APK signature:"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$APK"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: synced-plus-android-apk
+          path: src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk
+          if-no-files-found: error

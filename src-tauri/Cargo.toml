@@ -26,3 +26,6 @@ tauri-plugin-log = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
+
+[target.'cfg(target_os = "android")'.dependencies]
+tauri-plugin-android-fs = { version = "=29.0.0" }

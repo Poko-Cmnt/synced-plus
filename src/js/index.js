@@ -752,7 +752,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             lines.forEach((l, i) => {
                 const startStr = formatTime(l.start, 2);
-                const endStr = formatTime(l.end, 2);
+                const endStr = formatTime(l.end, trailingTag ? 3 : 2);
 
                 if (forPreview && type === 'standard') {
                     let lineText = l.words.length > 0 ? l.words.map(w => w.text).join(' ') : l.text;
@@ -764,8 +764,11 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (j === 0 && time === '') time = startStr;
                         if (forPreview) lineStr += `<span id="prev-l${i}-w${j}">${time ? `&lt;${time}&gt;` : ''}${w.text}</span> `;
                         else {
-                            if (type === 'enhanced') lineStr += `${time ? `<${time}>` : ''}${w.text} `;
-                            else lineStr += `${w.text} `;
+                            if (type === 'enhanced') {
+                                const isLastWord = j === l.words.length - 1;
+                                const needsTrailingSpace = !(trailingTag && isLastWord);
+                                lineStr += `${time ? `<${time}>` : ''}${w.text}${needsTrailingSpace ? ' ' : ''}`;
+                            } else lineStr += `${w.text} `;
                         }
                     });
 
@@ -1546,7 +1549,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         lineArray.forEach((l, i) => {
             const startStr = formatTime(l.start, 2);
-            const endStr = formatTime(l.end, 2);
+            const endStr = formatTime(l.end, appSettings.trailingTag ? 3 : 2);
 
             if (forPreview && type === 'standard') {
                 let lineText = l.words.length > 0 ? l.words.map(w => w.text).join(' ') : l.text;
@@ -1558,8 +1561,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (j === 0 && time === '') time = startStr;
                     if (forPreview) lineStr += `<span id="prev-l${i}-w${j}">${time ? `&lt;${time}&gt;` : ''}${w.text}</span> `;
                     else {
-                        if (type === 'enhanced') lineStr += `${time ? `<${time}>` : ''}${w.text} `;
-                        else lineStr += `${w.text} `;
+                        if (type === 'enhanced') {
+                            const isLastWord = j === l.words.length - 1;
+                            const needsTrailingSpace = !(appSettings.trailingTag && isLastWord);
+                            lineStr += `${time ? `<${time}>` : ''}${w.text}${needsTrailingSpace ? ' ' : ''}`;
+                        } else lineStr += `${w.text} `;
                     }
                 });
 
@@ -1621,6 +1627,18 @@ document.addEventListener('DOMContentLoaded', () => {
     const saveFile = async (lyricData, filename, ext = 'lrc') => {
         if (window.__TAURI_INTERNALS__) {
             try {
+                const isAndroid = /Android/i.test(navigator.userAgent);
+
+                if (isAndroid) {
+                    const saved = await window.__TAURI_INTERNALS__.invoke('save_lrc_android', {
+                        fileName: `${filename}.${ext}`,
+                        contents: lyricData
+                    });
+
+                    if (saved) await customAlert("Downloading now!");
+                    return;
+                }
+
                 const filePath = await window.__TAURI_INTERNALS__.invoke('plugin:dialog|save', {
                     options: {
                         defaultPath: `${filename}.${ext}`,
@@ -1640,6 +1658,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             } catch (err) {
                 console.error("Downloading failed: ", err);
+                await customAlert(`Download failed: ${err}`);
             }
         } else {
             try {
@@ -1652,7 +1671,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 a.click();
                 document.body.removeChild(a);
                 URL.revokeObjectURL(url);
-                await customAlert("Downloading now!");
             } catch (err) {
                 console.error("Downloading failed: ", err);
             }
