@@ -1,8 +1,7 @@
 name: "Release synced+ page"
 
 on:
-  push:
-    branches: ["master"]
+  workflow_dispatch:
 
 permissions:
   contents: read
